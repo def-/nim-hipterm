@@ -4,11 +4,14 @@ import termbox as tb
 # TODO: make independent of termbox for javascript compatibility
 
 type
-  BoxIndex = enum
-    #h, v, tl, tr, bl, br, vl, vr, ht, hb, x
-    sp, ─, │, ┌, ┐, └, ┘, ├, ┤, ┬, ┴, ┼
+  BoxIndex = enum sp, ─, │, ┌, ┐, └, ┘, ├, ┤, ┬, ┴, ┼
 
   Box = array[BoxIndex, Rune]
+
+  Window = object
+    x, y, w, h: int
+    title: string
+    content: seq[string]
 
   cArray{.unchecked.}[T] = array[0..0, T]
 
@@ -93,28 +96,59 @@ proc tbEcho[T](x, y: int, fg, bg: uint16, ss: varargs[T, `$`]) =
       changeCell x, y, r, fg, bg
       inc x
 
-proc window(x, y, w, h: int, title: string, content: openarray[string]) =
-  combineCell x,   y,   ┌, TB_BLACK or TB_BOLD, TB_BLACK
-  combineCell x+w, y,   ┐, TB_BLACK or TB_BOLD, TB_BLACK
-  combineCell x,   y+h, └, TB_BLACK or TB_BOLD, TB_BLACK
-  combineCell x+w, y+h, ┘, TB_BLACK or TB_BOLD, TB_BLACK
+proc render(ws: openarray[Window]) =
+  for w in ws:
+    combineCell w.x,     w.y,     ┌, TB_BLACK or TB_BOLD, TB_BLACK
+    combineCell w.x+w.w, w.y,     ┐, TB_BLACK or TB_BOLD, TB_BLACK
+    combineCell w.x,     w.y+w.h, └, TB_BLACK or TB_BOLD, TB_BLACK
+    combineCell w.x+w.w, w.y+w.h, ┘, TB_BLACK or TB_BOLD, TB_BLACK
 
-  for p in x+1 .. < x+w:
-    combineCell p, y, ─, TB_BLACK or TB_BOLD, TB_BLACK
-    combineCell p, y+h, ─, TB_BLACK or TB_BOLD, TB_BLACK
-  for p in y+1 .. < y+h:
-    combineCell x, p, │, TB_BLACK or TB_BOLD, TB_BLACK
-    combineCell x+w, p, │, TB_BLACK or TB_BOLD, TB_BLACK
+    for p in w.x+1 .. < w.x+w.w:
+      combineCell p, w.y, ─, TB_BLACK or TB_BOLD, TB_BLACK
+      combineCell p, w.y+w.h, ─, TB_BLACK or TB_BOLD, TB_BLACK
+    for p in w.y+1 .. < w.y+w.h:
+      combineCell w.x, p, │, TB_BLACK or TB_BOLD, TB_BLACK
+      combineCell w.x+w.w, p, │, TB_BLACK or TB_BOLD, TB_BLACK
 
-  tbEcho x+2, y, TB_CYAN or TB_BOLD, TB_BLACK, " ", title, " "
+  for w in ws:
+    for i, line in w.content:
+      if i > w.h - 2:
+        break
+      let text = if line.len > w.w - 3: line[0 .. < w.w - 3] else: line
+      tbEcho w.x+2, w.y+1+i, TB_WHITE or TB_BOLD, TB_BLACK, text
+
+  for w in ws:
+    if w.title.len > 0:
+      let text = if w.title.len > w.w - 5: w.title[0 .. < w.w - 5] else: w.title
+      tbEcho w.x+2, w.y, TB_CYAN or TB_BOLD, TB_BLACK, " ", text, " "
+
+proc initWindow(x, y, w, h: int, title = "", content: seq[string] = @[]): Window =
+  Window(x: x, y: y, w: w, h: h, title: title, content: content)
 
 when isMainModule:
   usedBox = roundBox
+  var
+    windows = newSeq[Window]()
+    running = true
+    event: tbEvent
+
+  windows.add initWindow(0, 0, 30, 5, "Foobarasdjlkasdjaskdjasdklasjdkasdjas", @["abc", "defg", "=)aslkdjaskdlajdklasjdklasjdkasjdklasdjkasldjaskldjaskldj", "c", "d", "e", "f"])
+  windows.add initWindow(30, 0, 20, 5, "OMG")
+  windows.add initWindow(0, 5, 25, 4, "Dadada")
+  windows.add initWindow(25, 5, 25, 4, "Nanana")
 
   discard tb.init()
-  tb.clear()
-  window 0, 0, 30, 5, "foobar", @["foo", "bar", "foobar"]
-  window 30, 0, 20, 5, "OMG", @[]
-  tb.present()
-  sleep 3000
+  while running:
+    render windows
+    tb.present()
+    case poll_event(addr(event))
+    of 0: # No event
+      discard
+    of TB_EVENT_KEY:
+      if event.key == TB_KEY_CTRL_C:
+        running = false
+    of TB_EVENT_RESIZE:
+      discard
+    else: # Error
+      running = false
   tb.shutdown()
